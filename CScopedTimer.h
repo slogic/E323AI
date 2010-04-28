@@ -31,14 +31,12 @@ static const float3 colors[] = {
 class CScopedTimer {
 	public:
 		CScopedTimer(const std::string& s, IAICallback *_cb): cb(_cb), task(s) {
-			initialized = cb->IsDebugDrawerEnabled();
+			initialized = true;
 			if (!initialized)
 				return;
 
 			if (std::find(tasks.begin(), tasks.end(), task) == tasks.end()) {
 				taskIDs[task] = tasks.size();
-				cb->DebugDrawerSetGraphLineColor(taskIDs[task], colors[taskIDs[task]%8]);
-				cb->DebugDrawerSetGraphLineLabel(taskIDs[task], task.c_str());
 				tasks.push_back(task);
 				curTime[task] = cb->GetCurrentFrame();
 				prevTime[task] = 0;
@@ -52,20 +50,6 @@ class CScopedTimer {
 
 			if (!initialized)
 				return;
-
-			unsigned int curFrame = cb->GetCurrentFrame();
-			for (size_t i = 0; i < tasks.size(); i++) {
-				if (tasks[i] == task) {
-					cb->DebugDrawerAddGraphPoint(taskIDs[task], curFrame, (t2-t1));
-					prevTime[task] = t2-t1;
-				}
-				else {
-					cb->DebugDrawerAddGraphPoint(taskIDs[tasks[i]], curFrame, prevTime[tasks[i]]);
-				}
-
-				if ((curFrame - curTime[tasks[i]]) >= TIME_INTERVAL)
-					cb->DebugDrawerDelGraphPoints(taskIDs[tasks[i]], 1);
-			}
 		}
 
 	private:
