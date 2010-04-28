@@ -8,17 +8,24 @@ void CUnit::remove() {
 	remove(*this);
 }
 
-float3 CUnit::pos() {
-	return ai->cb->GetUnitPos(key);
-}
-
 void CUnit::remove(ARegistrar &reg) {
 	LOG_II("CUnit::remove " << (*this))
-	std::list<ARegistrar*>::iterator i;
-	for (i = records.begin(); i != records.end(); i++) {
+	
+	std::list<ARegistrar*>::iterator i = records.begin();
+	while(i != records.end()) {
+		ARegistrar *regobj = *i; i++;
 		// remove from CUnitTable, CGroup
-		(*i)->remove(reg);
+		regobj->remove(reg);
 	}
+	
+	assert(records.empty());
+	
+	// TODO: remove next line when prev assertion is never raised
+	records.clear();
+}
+
+float3 CUnit::pos() {
+	return ai->cb->GetUnitPos(key);
 }
 
 void CUnit::reset(int uid, int bid) {
@@ -26,10 +33,18 @@ void CUnit::reset(int uid, int bid) {
 	this->key     = uid;
 	this->def     = ai->cb->GetUnitDef(uid);
 	this->type    = UT(def->id);
-	this->builder = bid;
+	this->builtBy = bid;
 	this->waiting = false;
 	this->microing= false;
 	this->techlvl = 0;
+	this->group = NULL;
+}
+
+bool CUnit::isEconomy() {
+	static const unsigned int economic = 
+		FACTORY|BUILDER|ASSISTER|RESURRECTOR|COMMANDER|MEXTRACTOR|MMAKER|EMAKER|
+		MSTORAGE|ESTORAGE|WIND|TIDAL;
+	return type->cats&economic;
 }
 
 bool CUnit::reclaim(float3 pos, float radius) {
@@ -41,6 +56,18 @@ bool CUnit::reclaim(float3 pos, float radius) {
 	}
 	return false;
 }
+
+bool CUnit::reclaim(int target, bool enqueue) {
+	Command c = createTargetCommand(CMD_RECLAIM, target);
+	if (c.id != 0) {
+		if (enqueue)
+			c.options |= SHIFT_KEY;
+		ai->cb->GiveOrder(key, &c);
+		ai->unittable->idle[key] = false;
+		return true;
+	}
+	return false;
+}	
 
 int CUnit::queueSize() {
 	return ai->cb->GetCurrentUnitCommands(key)->size();
@@ -166,7 +193,7 @@ bool CUnit::build(UnitType *toBuild, float3 &pos) {
 	float3 goal        = ai->cb->ClosestBuildSite(toBuild->def, pos, startRadius, mindist, f);
 
 	int i = 0;
-	while (goal == ERRORVECTOR) {
+	while (goal.x < 0.0f) {
 		startRadius += def->buildDistance;
 		goal = ai->cb->ClosestBuildSite(toBuild->def, pos, startRadius, mindist, f);
 		i++;
@@ -200,6 +227,10 @@ bool CUnit::micro(bool on) {
 
 bool CUnit::isMicroing() {
 	return microing;
+}
+
+bool CUnit::isOn() {
+	return ai->cb->IsUnitActivated(key);
 }
 
 bool CUnit::wait() {
@@ -319,6 +350,9 @@ facing CUnit::getBestFacing(float3 &pos) {
 }
 
 std::ostream& operator<<(std::ostream &out, const CUnit &unit) {
-	out << unit.def->humanName << "(" << unit.key << ", " << unit.builder << ")";
+	if (unit.def == NULL)
+		out << "Unknown" << "(" << unit.key << ", " << unit.builtBy << ")";
+	else
+		out << unit.def->humanName << "(" << unit.key << ", " << unit.builtBy << ")";
 	return out;
 }

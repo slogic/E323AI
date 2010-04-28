@@ -2,65 +2,81 @@
 #define SCOPEDTIMER_HDR
 
 #include <string>
-#include <sstream>
-#include <iomanip>
 #include <map>
+#include <vector>
+#include <algorithm>
 
 #include <SDL_timer.h>
 
-#define MAX_STR_LENGTH 21
+#include "headers/Defines.h"
+#include "headers/HAIInterface.h"
+#include "headers/HEngine.h"
+
+#define PROFILE(x) CScopedTimer t(std::string(#x), ai->cb);
+
+// Time interval in logic frames
+#define TIME_INTERVAL 1000
+
+static const float3 colors[] = {
+	float3(1.0f, 0.0f, 0.0f),
+	float3(0.0f, 1.0f, 0.0f),
+	float3(0.0f, 0.0f, 1.0f),
+	float3(1.0f, 1.0f, 0.0f),
+	float3(0.0f, 1.0f, 1.0f),
+	float3(1.0f, 0.0f, 1.0f),
+	float3(0.0f, 0.0f, 0.0f),
+	float3(1.0f, 1.0f, 1.0f)
+};
 
 class CScopedTimer {
 	public:
-		CScopedTimer(const std::string& s): task(s) {
-			if (times.find(task) == times.end()) {
-				times[task] = 0;
-				counters[task] = 0;
+		CScopedTimer(const std::string& s, IAICallback *_cb): cb(_cb), task(s) {
+			initialized = cb->IsDebugDrawerEnabled();
+			if (!initialized)
+				return;
+
+			if (std::find(tasks.begin(), tasks.end(), task) == tasks.end()) {
+				taskIDs[task] = tasks.size();
+				cb->DebugDrawerSetGraphLineColor(taskIDs[task], colors[taskIDs[task]%8]);
+				cb->DebugDrawerSetGraphLineLabel(taskIDs[task], task.c_str());
+				tasks.push_back(task);
+				curTime[task] = cb->GetCurrentFrame();
+				prevTime[task] = 0;
 			}
+
 			t1 = SDL_GetTicks();
 		}
 
 		~CScopedTimer() {
-			t2           = SDL_GetTicks();
-			t3           = t2 - t1;
-			times[task] += t3;
-			sum         += t3;
-			counters[task]++;
-		}
+			t2 = SDL_GetTicks();
 
-		static std::string profile() {
-			std::stringstream ss;
-			ss << "[CScopedTimer] milliseconds\n";
-			for (int i = 0; i < MAX_STR_LENGTH; i++)
-				ss << " ";
-			ss << "PCT\tAVG\tTOT\n";
+			if (!initialized)
+				return;
 
-			std::map<std::string, unsigned>::iterator i;
-			for (i = times.begin(); i != times.end(); i++) {
-				int x = i->second / float(sum) * 10000;
-				float pct = x / 100.0f;
-				x = i->second / float(counters[i->first]) * 100;
-				float avg = x / 100.0f;
-				ss << "  " << i->first;
-				for (unsigned j = i->first.size()+2; j < MAX_STR_LENGTH; j++)
-				  ss << " ";
-				ss << pct << "%\t" << avg << "\t" << i->second << "\t" << "\n";
+			unsigned int curFrame = cb->GetCurrentFrame();
+			for (size_t i = 0; i < tasks.size(); i++) {
+				if (tasks[i] == task) {
+					cb->DebugDrawerAddGraphPoint(taskIDs[task], curFrame, (t2-t1));
+					prevTime[task] = t2-t1;
+				}
+				else {
+					cb->DebugDrawerAddGraphPoint(taskIDs[tasks[i]], curFrame, prevTime[tasks[i]]);
+				}
+
+				if ((curFrame - curTime[tasks[i]]) >= TIME_INTERVAL)
+					cb->DebugDrawerDelGraphPoints(taskIDs[tasks[i]], 1);
 			}
-			ss << "\n";
-			return ss.str();
 		}
-
-		
 
 	private:
+		IAICallback *cb;
 		const std::string task;
-		unsigned t1;
-		unsigned t2;
-		unsigned t3;
+		unsigned t1, t2;
+		bool initialized;
 
-		static unsigned sum;
-		static std::map<std::string, unsigned> times;
-		static std::map<std::string, unsigned> counters;
+		static std::vector<std::string> tasks;
+		static std::map<std::string, int> taskIDs;
+		static std::map<std::string, unsigned int> curTime, prevTime;
 };
 
 #endif

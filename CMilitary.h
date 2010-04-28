@@ -13,7 +13,7 @@ class CUnit;
 class CGroup;
 class AIClasses;
 
-enum groupType{SCOUT, ENGAGE};
+enum groupType{SCOUT, ENGAGE, BOMBER};
 
 class CMilitary: public ARegistrar {
 	public:
@@ -32,22 +32,15 @@ class CMilitary: public ARegistrar {
 		/* update callin */
 		void update(int groupsize);
 
+		int idleScoutGroupsNum();
+
 	private:
 		AIClasses *ai;
 
-		void prepareTargets(std::vector<int> &all, std::vector<int> &harras);
+		void prepareTargets(std::vector<int> &all, std::vector<int> &harass);
 
 		/* Current group per factory <factory, CGroup*> */
-		std::map<int, CGroup*> currentGroups;
-
-		/* The group container */
-		std::vector<CGroup*> groups;
-
-		/* The <unitid, vectoridx> table */
-		std::map<int, int>  lookup;
-
-		/* The free slots (CUnit instances that are zombie-ish) */
-		std::stack<int>     free;
+		std::map<int, CGroup*> assemblingGroups;
 
 		/* The ingame scout groups */
 		std::map<int, CGroup*> activeScoutGroups;
@@ -62,10 +55,12 @@ class CMilitary: public ARegistrar {
 		std::map<int,CGroup*> mergeScouts, mergeGroups;
 
 		/* Select a target */
-		int selectTarget(float3 &ourPos, float radius, bool scout, std::vector<int> &targets);
+		int selectTarget(CGroup &group, float radius, std::vector<int> &targets);
+
+		void filterOccupiedTargets(std::vector<int> &source, std::vector<int> &dest);
 
 		/* Request a unit for building using a roulette wheel system */
-		unsigned requestUnit();
+		unsigned requestUnit(unsigned int basecat);
 
 		char buf[1024];
 };

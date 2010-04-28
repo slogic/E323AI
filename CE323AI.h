@@ -8,10 +8,11 @@ class AIClasses;
 
 class CE323AI: public IGlobalAI {
 	public:
-		CE323AI():isRunning(false) {}
-		~CE323AI();
+		CE323AI():isRunning(false),attachedAtFrame(-1) {}
+		~CE323AI() {}
 
 		void InitAI(IGlobalAICallback* callback, int team);
+		void ReleaseAI();
 
 		void UnitCreated(int unit, int builder);
 		void UnitFinished(int unit);
@@ -34,6 +35,8 @@ class CE323AI: public IGlobalAI {
 
 	private:
 		bool isRunning;
+		int attachedAtFrame; // frame when AI was attached
+		static int instances;
 		AIClasses *ai;
 };
 

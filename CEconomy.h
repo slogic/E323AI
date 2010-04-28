@@ -49,7 +49,7 @@ class CEconomy: public ARegistrar {
 		int state;
 
 		/* stalling/exceeding vars, updated in updateIncomes() */
-		bool mstall, estall, mexceeding, eexceeding;
+		bool mstall, estall, mexceeding, eexceeding, areMMakersEnabled;
 
 		/* Returns a fresh CGroup instance */
 		CGroup* requestGroup();
@@ -57,8 +57,11 @@ class CEconomy: public ARegistrar {
 		/* Overload */
 		void remove(ARegistrar &group);
 
-		/* Add a new unit */
-		void addUnit(CUnit &unit);
+		/* Add a new unit on finished */
+		void addUnitOnCreated(CUnit &unit);
+
+		/* Add a new unit on created */
+		void addUnitOnFinished(CUnit &unit);
 
 		/* Initialize economy module */
 		void init(CUnit &unit);
@@ -78,20 +81,13 @@ class CEconomy: public ARegistrar {
 		/* Can we afford to build this ? */
 		bool canAffordToBuild(UnitType *builder, UnitType *utToBuild);
 
-		bool getInitialized() { return initialized; };
+		bool isInitialized() { return initialized; };
 
 	private:
 		bool initialized;
 		AIClasses *ai;
 
-		/* The group container */
-		std::vector<CGroup*> groups;
-
-		/* The <unitid, vectoridx> table */
-		std::map<int, int>  lookup;
-
-		/* The free slots (CUnit instances that are zombie-ish) */
-		std::stack<int>     free;
+		std::map<int, float3> takenMexes;
 
 		/* Active groups ingame */
 		std::map<int, CGroup*> activeGroups;
@@ -102,9 +98,6 @@ class CEconomy: public ARegistrar {
 		/* Is this a windmap ? */
 		bool windmap;
 
-		/* Primary unit category (KBOT or VEHICLE) */
-		unitCategory type;
-
 		/* updateIncomes counter */
 		unsigned int incomes;
 
@@ -113,6 +106,9 @@ class CEconomy: public ARegistrar {
 
 		/* See if we can help with a certain task */
 		ATask* canAssist(buildType t, CGroup &group);
+
+		/* Fills takenMexes also */
+		float3 getClosestOpenMetalSpot(CGroup &group);
 
 		/* Prevent stalling */
 		void preventStalling();
@@ -123,11 +119,11 @@ class CEconomy: public ARegistrar {
 		/* build or assist on a certain task */
 		void buildOrAssist(CGroup &group, buildType bt, unsigned include, unsigned exclude = 0);
 
-		/* Determine which factory we don't have yet */
-		unsigned getAllowedFactory();
-
 		/* See if a buildtask is in progress */
 		bool taskInProgress(buildType bt);
+
+		/* Get next allowed factory to build */
+		unsigned int getNextFactoryToBuild(CUnit *unit, int maxteachlevel);
 };
 
 #endif

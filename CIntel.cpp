@@ -3,57 +3,27 @@
 #include "CAI.h"
 #include "CUnitTable.h"
 #include "CUnit.h"
+#include "CMilitary.h"
+#include "GameMap.hpp"
 
 CIntel::CIntel(AIClasses *ai) {
 	this->ai = ai;
-	units = new int[MAX_UNITS];
+	
+	units = &ai->unitIDs[0]; // save about 4x32KB of memory
+
 	selector.push_back(ASSAULT);
 	selector.push_back(SCOUTER);
 	selector.push_back(SNIPER);
 	selector.push_back(ARTILLERY);
 	selector.push_back(ANTIAIR);
 	selector.push_back(AIR);
+	
 	for (size_t i = 0; i < selector.size(); i++)
 		counts[selector[i]] = 1;
-	numUnits = 1;
+	
+	enemyvector = float3(1.0f, 1.0f, 1.0f);
 
-	/* Compute the variance of the heightmap in integers */
-	int X = int(ai->cb->GetMapWidth());
-	int Z = int(ai->cb->GetMapHeight());
-	const float *hm = ai->cb->GetHeightMap();
-
-	float fmin = MAX_FLOAT;
-	float fmax = -MAX_FLOAT;
-	float fsum = 0.0f;
-
-	unsigned count = 0;
-	/* Calculate the sum, min and max */
-	for (int z = 0; z < Z; z++) {
-		for (int x = 0; x < X; x++) {
-			float h = hm[ID(x,z)];
-			if (h >= 0.0f) {
-				fsum += h;
-				fmin = std::min<float>(fmin,h);
-				fmax = std::max<float>(fmax,h);
-				count++;
-			}
-		}
-	}
-
-	float fvar = 0.0f;
-	float favg = fsum / count;
-	/* Finally calculate the variance */
-	for (int z = 0; z < Z; z++) {
-		for (int x = 0; x < X; x++) {
-			float h = hm[ID(x,z)];
-			if (h >= 0.0f) {
-				fvar += (h/fsum) * pow((h - favg), 2);
-			}
-		}
-	}
-	LOG_II("Heightmap specs: avg("<<favg<<") sum("<<fsum<<") min("<<fmin<<") max("<<fmax<<") variance("<<fvar<<") sqrt(var) = "<<sqrt(fvar))
-	/* Taking sqrt(var) of altair crossing as baseline */
-	primaryType = sqrt(fvar) < 43.97 ? VEHICLE : KBOT;
+	initialized = false;
 }
 
 float3 CIntel::getEnemyVector() {
@@ -61,18 +31,47 @@ float3 CIntel::getEnemyVector() {
 }
 
 void CIntel::init() {
-	numUnits = ai->cbc->GetEnemyUnits(units, MAX_UNITS);
-	assert(numUnits > 0);
-	enemyvector = float3(0.0f, 0.0f, 0.0f);
-	for (int i = 0; i < numUnits; i++) {
-		enemyvector += ai->cbc->GetUnitPos(units[i]);
+	if (initialized) return;
+	
+	int numUnits = ai->cbc->GetEnemyUnits(units, MAX_UNITS);
+	// FIXME: when commanders are spawned with wrap gate option enabled then assert raises
+	if (numUnits > 0) {
+		enemyvector = ZeroVector;
+		for (int i = 0; i < numUnits; i++) {
+			enemyvector += ai->cbc->GetUnitPos(units[i]);
+		}
+		enemyvector /= numUnits;
 	}
-	enemyvector /= numUnits;
-	LOG_II("Number of enemies: " << numUnits)
-}
 
-unitCategory CIntel::getUnitType() {
-	return primaryType;
+	LOG_II("Number of enemy units: " << numUnits)
+	
+	/* FIXME:
+		I faced situation that on maps with less land there is a direct
+		path to enemy unit, but algo below starts to play a non-land game. 
+		I could not think up an apporpiate algo to avoid this. I though tracing
+		a path in the beginning of the game from my commander to enemy would 
+		be ok, but commander is an amphibious unit. It is not trivial stuff 
+		without external helpers in config files.
+	*/
+	if(ai->gamemap->IsWaterMap()) {
+		allowedFactories.push_back(HOVER);
+	}
+	else {
+		if(ai->gamemap->IsKbotMap()) {
+			allowedFactories.push_back(KBOT);
+			allowedFactories.push_back(VEHICLE);
+		} else {
+			allowedFactories.push_back(VEHICLE);
+			allowedFactories.push_back(KBOT);
+		}
+		
+		if(ai->gamemap->IsHooverMap())
+			allowedFactories.push_back(HOVER);
+	}
+	// TODO: do not build air on too small maps?
+	allowedFactories.push_back(AIR);
+
+	initialized = true;
 }
 
 void CIntel::update(int frame) {
@@ -81,39 +80,63 @@ void CIntel::update(int frame) {
 	attackers.clear();
 	metalMakers.clear();
 	energyMakers.clear();
+	navalUnits.clear();
+	underwaterUnits.clear();
+	restUnarmedUnits.clear();
 	rest.clear();
+	defenseGround.clear();
+	defenseAntiAir.clear();
+	
 	resetCounters();
-	numUnits = ai->cbc->GetEnemyUnits(units, MAX_UNITS);
+
+	int numUnits = ai->cbc->GetEnemyUnits(units, MAX_UNITS);
+	
 	for (int i = 0; i < numUnits; i++) {
-		const UnitDef *ud = ai->cbc->GetUnitDef(units[i]);
+		const int uid = units[i];
+		const UnitDef *ud = ai->cbc->GetUnitDef(uid);
 		UnitType      *ut = UT(ud->id);
 		unsigned int    c = ut->cats;
+		bool armed = !ud->weapons.empty();
 
-		if (
-			ai->cbc->UnitBeingBuilt(units[i]) || /* Ignore units being built */
-			ai->cbc->IsUnitCloaked(units[i])     /* Ignore cloaked units */
-		) continue;
+		/* Ignore units being built and cloaked units */
+		if ((ai->cbc->UnitBeingBuilt(uid) && (armed || !(c&STATIC)))
+		|| 	ai->cbc->IsUnitCloaked(uid))
+			continue;
 		
-		if (c&ATTACKER && !(c&AIR)) {
-			attackers.push_back(units[i]);
+		if (c&SEA && ai->cbc->GetUnitPos(uid).y < 0.0f) {
+			underwaterUnits.push_back(uid);
+		}
+		else if (!(c&(LAND|AIR)) && c&SEA) {
+			navalUnits.push_back(uid);
+		}
+		else if ((c&STATIC) && (c&ANTIAIR)) {
+			defenseAntiAir.push_back(uid);
+		}
+		else if ((c&STATIC) && (c&DEFENSE)) {
+			defenseGround.push_back(uid);
+		}
+		else if ((c&ATTACKER) && !(c&AIR)) {
+			attackers.push_back(uid);
 		}
 		else if (c&FACTORY) {
-			factories.push_back(units[i]);
+			factories.push_back(uid);
 		}
 		else if (c&BUILDER && c&MOBILE && !(c&AIR)) {
-			mobileBuilders.push_back(units[i]);
+			mobileBuilders.push_back(uid);
 		}
-		else if (c&MEXTRACTOR || c&MMAKER) {
-			metalMakers.push_back(units[i]);
+		else if (c&(MEXTRACTOR|MMAKER)) {
+			metalMakers.push_back(uid);
 		}
 		else if (c&EMAKER) {
-			energyMakers.push_back(units[i]);
+			energyMakers.push_back(uid);
 		}
+		else if (!armed)
+			restUnarmedUnits.push_back(uid);
 		else {
-			rest.push_back(units[i]);
+			rest.push_back(uid);
 		}
 
-		if (c&ATTACKER && c&MOBILE)
+		if ((c&ATTACKER) && (c&MOBILE))
 			updateCounts(c);
 	}
 }
@@ -142,14 +165,22 @@ void CIntel::updateCounts(unsigned c) {
 
 void CIntel::resetCounters() {
 	roulette.clear();
+	
 	/* Put the counts in a normalized reversed map first and reset counters*/
 	for (size_t i = 0; i < selector.size(); i++) {
 		roulette.insert(std::pair<float,unitCategory>(counts[selector[i]]/float(totalCount), selector[i]));
 		counts[selector[i]] = 1;
 	}
+	
 	counts[ANTIAIR] = 0;
 	counts[AIR] = 0;
 	counts[ASSAULT] = 3;
+	
+	if(ai->military->idleScoutGroupsNum() >= MAX_IDLE_SCOUT_GROUPS)
+		counts[SCOUTER] = 0;
+	else
+		counts[SCOUTER] = 1; // default value
+	
 	totalCount = selector.size();
 }
 

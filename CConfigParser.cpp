@@ -9,9 +9,12 @@
 #include "CAI.h"
 #include "CUnit.h"
 #include "CUnitTable.h"
+#include "Util.hpp"
 
 CConfigParser::CConfigParser(AIClasses *ai) {
 	this->ai = ai;
+	loaded = false;
+	templt = false;
 	stateVariables["metalIncome"]       = 0;
 	stateVariables["energyIncome"]      = 0;
 	stateVariables["minWorkers"]        = 0;
@@ -44,7 +47,7 @@ int CConfigParser::getMinWorkers()   { return states[state]["minWorkers"]; }
 int CConfigParser::getMaxWorkers()   { return states[state]["maxWorkers"]; }
 int CConfigParser::getMinScouts()    { return states[state]["minScouts"]; }
 
-int CConfigParser::getMaxTechLevel() { 
+int CConfigParser::getMaxTechLevel() {
 	return states[state]["maxTechLevel"];
 }
 
@@ -58,22 +61,28 @@ int CConfigParser::getMinGroupSize(int techLevel) {
 }
 
 bool CConfigParser::parseConfig(std::string filename) {
-	std::string dirfilename = getAbsoluteFileName(filename);
+	std::string dirfilename = util::GetAbsFileName(ai->cb, std::string(CFG_FOLDER)+filename, true);
 	std::ifstream file(dirfilename.c_str());
 	unsigned linenr = 0;
 
 	if (file.good() && file.is_open()) {
+		templt = false;
 		std::vector<std::string> splitted;
 		while(!file.eof()) {
 			linenr++;
 			std::string line;
 
 			std::getline(file, line);
-			line = line.substr(0, line.find('#')-1);
-			removeWhiteSpace(line);
+			line = line.substr(0, line.find('#') - 1);
+			util::RemoveWhiteSpaceInPlace(line);
 
-			if (line[0] == '#' || line.empty())
+			if (line.empty() || line[0] == '#')
 				continue;
+
+			if (line == "TEMPLATE") {
+				templt = true;
+				continue;
+			}
 
 			/* New state block */
 			if (contains(line, '{')) {
@@ -98,25 +107,36 @@ bool CConfigParser::parseConfig(std::string filename) {
 		}
 		LOG_II("CConfigParser::parseConfig parsed "<<linenr<<" lines from " << dirfilename)
 		file.close();
+		loaded = true;
 	}
 	else {
-		LOG_II("Could not open " << dirfilename << " for parsing")
+		LOG_WW("Could not open " << dirfilename << " for parsing")
 
-		std::string templatefile = getAbsoluteFileName(std::string(CONFIG_TEMPLATE));
+		std::string templatefile = util::GetAbsFileName(ai->cb, std::string(CFG_FOLDER)+std::string(CONFIG_TEMPLATE), true);
 		std::ifstream ifs(templatefile.c_str(), std::ios::binary);
 
-		std::string newfile = getAbsoluteFileName(filename, false);
+		std::string newfile = util::GetAbsFileName(ai->cb, std::string(CFG_FOLDER)+filename, false);
 		std::ofstream ofs(newfile.c_str(), std::ios::binary);
 
 		ofs << ifs.rdbuf();
 		LOG_II("New configfile created from " << templatefile)
-		return false;
+		templt = true;
+		loaded = false;
 	}
-	return true;
+	return loaded;
+}
+
+bool CConfigParser::isUsable() const {
+
+#ifdef DEBUG
+	return loaded;
+#else
+	return loaded && !templt;
+#endif
 }
 
 bool CConfigParser::parseCategories(std::string filename, std::map<int, UnitType> &units) {
-	filename = getAbsoluteFileName(filename);
+	filename = util::GetAbsFileName(ai->cb, std::string(CFG_FOLDER)+filename, true);
 	std::ifstream file(filename.c_str());
 	unsigned linenr = 0;
 
@@ -131,7 +151,7 @@ bool CConfigParser::parseCategories(std::string filename, std::map<int, UnitType
 			if (line.empty() || line[0] == '#')
 				continue;
 
-			line = line.substr(0, line.find('#')-1);
+			line = line.substr(0, line.find('#') - 1);
 			split(line, ',', splitted);
 			const UnitDef *ud = ai->cb->GetUnitDef(splitted[0].c_str());
 			if (ud == NULL) {
@@ -159,10 +179,10 @@ bool CConfigParser::parseCategories(std::string filename, std::map<int, UnitType
 		file.close();
 	}
 	else {
-		LOG_II("Could not open " << filename << " for parsing")
+		LOG_WW("Could not open " << filename << " for parsing")
 		return false;
 	}
-	LOG_II("Parsed " << linenr << " lines from " << filename)
+	LOG_II("CConfigParser::parseCategories parsed "<<linenr<<" lines from " << filename)
 	return true;
 }
 
@@ -184,40 +204,12 @@ void CConfigParser::split(std::string &line, char c, std::vector<std::string> &s
 	splitted.push_back(substr);
 }
 
-std::string CConfigParser::getAbsoluteFileName(std::string filename, bool readonly) {
-	char buf[2048];
-	sprintf(
-		buf, "%s%s", 
-		CFG_FOLDER,
-		filename.c_str()
-	);
-	if (readonly)
-		ai->cb->GetValue(AIVAL_LOCATE_FILE_R, buf);
-	else
-		ai->cb->GetValue(AIVAL_LOCATE_FILE_W, buf);
-	filename = std::string(buf);
-	return filename;
-}
-
 bool CConfigParser::contains(std::string &line, char c) {
 	for ( int i = 0; i < line.length(); i++ ) {
 		if (line[i] == c)
 			return true;
 	}
 	return false;
-}
-
-void CConfigParser::removeWhiteSpace(std::string &line) {
-	for ( int i = 0, j ; i < line.length( ) ; ++ i ) {
-		if ( line [i] == ' ' || line[i] == '\t') {
-			for ( j = i + 1; j < line.length ( ) ; ++j )
-			{
-				if ( line [j] != ' ' || line[i] == '\t')
-				break ;
-			}
-			line = line.erase ( i, (j - i) );
-		}
-	}
 }
 
 void CConfigParser::debugConfig() {

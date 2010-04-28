@@ -9,6 +9,7 @@
 #include "ARegistrar.h"
 #include "headers/Defines.h"
 #include "headers/HEngine.h"
+#include "CWishList.h"
 
 class CUnit;
 class AIClasses;
@@ -31,7 +32,7 @@ public:
 class CUnitTable: public ARegistrar {
 	public:
 		CUnitTable(AIClasses *ai);
-		~CUnitTable() {};
+		~CUnitTable();
 
 
 		/* Returns a fresh CUnit instance */
@@ -40,32 +41,33 @@ class CUnitTable: public ARegistrar {
 		/* Return unit by ingame id */
 		CUnit* getUnit(int id);
 
-		/* Total nr of units */
+		/* Total number of unit types (definitions) */
 		int numUnits;
 
 		/* All units flattened in a map */
 		std::map<int, UnitType>   units;
 
-		/* Unit categories in vector */
-		std::vector<unitCategory> cats;
-
 		/* movetypes, used by pathfinder */
 		std::map<int, MoveData*>  moveTypes;
 
 		/* Ingame units, set in eco module */
-		std::map<int, bool>       idle;
-		std::map<int, bool>       builders;
-		std::map<int, bool>       metalMakers;
-		std::map<int, UnitType*>  factoriesBuilding;
-		std::map<int, CUnit*>     activeUnits;
-		std::map<int, bool>       factories;
-		std::map<int, CUnit*>     defenses;
-		std::map<int, CUnit*>     energyStorages;
-		std::map<int, int>        unitsAliveTime;
+		std::map<int, bool>         idle;
+		std::map<int, bool>         builders;
+		std::map<int, CUnit*>       metalMakers;
+		std::map<int, CUnit*>       activeUnits;
+		std::map<int, CUnit*>       factories;
+		std::map<int, CUnit*>       defenses;
+		std::map<int, CUnit*>       energyStorages;
+		std::map<int, int>          unitsAliveTime;
+		std::map<int, CUnit*>       unitsUnderPlayerControl;
+		std::map<int, unsigned int> unitsUnderConstruction; // key = <unit_id>, value = <cats_from_wishlist>
+		std::map<int, Wish>         unitsBuilding; // key = <unit_id>, value = <wish>
 
 		/* unitCategories in string format, see Defines.h */
 		static std::map<unitCategory, std::string> cat2str;
 		static std::map<std::string, unitCategory> str2cat;
+		/* Unit categories in vector */
+		static std::vector<unitCategory> cats;
 
 
 		/* Special commander hook, since it's the first to spawn */
@@ -82,8 +84,12 @@ class CUnitTable: public ARegistrar {
 		/* Returns a unittype with categories that ut can build */
 		UnitType* canBuild(UnitType *ut, unsigned int categories);
 		void getBuildables(UnitType *ut, unsigned i, unsigned e, std::multimap<float, UnitType*> &candidates);
+		int factoryCount(unsigned c);
 		bool gotFactory(unsigned c);
 
+		static CUnit* getUnitByDef(std::map<int, CUnit*> &dic, const UnitDef *udef);
+		static CUnit* getUnitByDef(std::map<int, CUnit*> &dic, int did);
+		
 		/* Debugging functions */
 		std::string debugCategories(UnitType *ut);
 		std::string debugCategories(unsigned categories);
@@ -94,15 +100,6 @@ class CUnitTable: public ARegistrar {
 		AIClasses *ai;
 
 		char buf[255];
-
-		/* The unit container */
-		std::vector<CUnit*> ingameUnits;
-
-		/* The <unitid, vectoridx> table */
-		std::map<int, int> lookup;
-
-		/* The free slots (CUnit instances that are zombie-ish) */
-		std::stack<int>    free;
 
 		/* Build the lists buildby and canbuild per unit */
 		void buildTechTree();

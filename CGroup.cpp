@@ -3,52 +3,80 @@
 #include <sstream>
 #include <iostream>
 #include <string>
+#include <limits>
 
 #include "CAI.h"
 #include "CUnit.h"
 #include "CUnitTable.h"
 #include "CTaskHandler.h"
+#include "CPathfinder.h"
 
 int CGroup::counter = 0;
 
 void CGroup::addUnit(CUnit &unit) {
-	LOG_II("CGroup::add " << unit)
 
-	recalcProperties(&unit);
-
+	if (unit.group) {
+		if (unit.group == this) {
+			LOG_EE("CGroup::addUnit " << unit << " already registered in " << (*this))
+			return; // already registered
+		} else {
+			// NOTE: unit can exist in one and only group
+			LOG_II("CGroup::addUnit " << unit << " still in group " << (*(unit.group)))
+			unit.group->remove(unit);
+		}
+	}
+	
+	assert(unit.group == NULL);
+	
 	units[unit.key] = &unit;
 	unit.reg(*this);
+	unit.group = this;
+	
+	recalcProperties(&unit);
 
+	LOG_II("CGroup::addUnit " << unit << " to " << (*this))
 	// TODO: if group is busy invoke new unit to community process?
 }
 
 void CGroup::remove() {
 	LOG_II("CGroup::remove " << (*this))
 
-	std::map<int, CUnit*>::iterator i;
-	for (i = units.begin(); i != units.end(); i++)
-		i->second->unreg(*this);
-	
-	std::list<ARegistrar*>::iterator j;
-	for (j = records.begin(); j != records.end(); j++)
+	// NOTE: removal order below is important
+		
+	std::list<ARegistrar*>::iterator j = records.begin();
+	while(j != records.end()) {
+		ARegistrar *regobj = *j; j++;
 		// remove from CEconomy, CPathfinder, ATask
-		(*j)->remove(*this);
+		regobj->remove(*this);
+	}
+	
+	std::map<int, CUnit*>::iterator i;
+	for (i = units.begin(); i != units.end(); i++) {
+		i->second->unreg(*this);
+		i->second->group = NULL;
+	}
+	units.clear();
+	
+	assert(records.empty());
+
+	// TODO: remove next line when prev assertion is never raised
+	records.clear();
 }
 
-void CGroup::remove(ARegistrar &unit) {
-	// TODO: looks like "unit" can be a ATask instance
-	LOG_II("CGroup::remove unit(" << unit.key << ")")
+void CGroup::remove(ARegistrar &object) {
+	CUnit *unit = dynamic_cast<CUnit*>(&object);
+	LOG_II("CGroup::remove " << (*unit) << " from " << (*this))
 
-	units.erase(unit.key);
+	assert(units.find(unit->key) != units.end());
+	
+	unit->group = NULL;
+	unit->unreg(*this);
+	units.erase(unit->key);
 
 	/* If no more units remain in this group, remove the group */
 	if (units.empty()) {
-		std::list<ARegistrar*>::iterator i;
-		for (i = records.begin(); i != records.end(); i++)
-			// remove from CEconoy, CPathfinder, ATask
-  	        (*i)->remove(*this);
-	}
-	else {
+		remove();
+	} else {
 		/* Recalculate properties of the current group */
 		recalcProperties(NULL, true);
 		std::map<int, CUnit*>::iterator i;
@@ -58,10 +86,32 @@ void CGroup::remove(ARegistrar &unit) {
 	}
 }
 
-void CGroup::reclaim(int feature) {
+void CGroup::reclaim(int entity, bool feature) {
+	float3 pos;
+	
+	if (feature) {
+		pos = ai->cb->GetFeaturePos(entity);
+		if (pos == ZEROVECTOR)
+			return;
+	}
+		
 	std::map<int, CUnit*>::iterator i;
-	for (i = units.begin(); i != units.end(); i++)
-		i->second->reclaim(ai->cb->GetFeaturePos(feature), 16.0f);
+	for (i = units.begin(); i != units.end(); i++) {
+		if (i->second->def->canReclaim) {
+			if (feature)
+				i->second->reclaim(pos, 16.0f);
+			else
+				i->second->reclaim(entity);
+		}
+	}
+}
+
+void CGroup::repair(int target) {
+	std::map<int, CUnit*>::iterator i;
+	for (i = units.begin(); i != units.end(); i++) {
+		if (i->second->def->canRepair)
+			i->second->repair(target);
+	}
 }
 
 void CGroup::abilities(bool on) {
@@ -100,6 +150,8 @@ bool CGroup::isIdle() {
 }
 
 void CGroup::reset() {
+	LOG_II("CGroup::reset " << (*this))
+	assert(units.empty());
 	recalcProperties(NULL, true);
 	busy = false;
 	micro(false);
@@ -112,7 +164,7 @@ void CGroup::recalcProperties(CUnit *unit, bool reset)
 {
 	if(reset) {
 		strength   = 0.0f;
-		speed      = MAX_FLOAT;
+		speed      = std::numeric_limits<float>::max();
 		size       = 0;
 		buildSpeed = 0.0f;
 		range      = 0.0f;
@@ -120,40 +172,45 @@ void CGroup::recalcProperties(CUnit *unit, bool reset)
 		los        = 0.0f;
 		busy       = false;
 		maxSlope   = 1.0f;
-		//moveType = ?;
-		techlvl    = 1;
-    }
+		pathType   = -1; // emulate NONE
+		techlvl    = TECH1;
+		cats       = 0;
+	}
 
 	if(unit == NULL)
 		return;
 
-    if (unit->builder > 0) {
+    if (unit->builtBy >= 0) {
 		techlvl = std::max<int>(techlvl, unit->techlvl);
 	}
 
-	MoveData *md = ai->cb->GetUnitDef(unit->key)->movedata;
-    if (md->maxSlope <= maxSlope) {
-		moveType = md->pathType;
-		maxSlope = md->maxSlope;
+	// NOTE: aircraft & static units do not have movedata
+	MoveData *md = unit->def->movedata;
+    if (md) {
+    	if (md->maxSlope <= maxSlope) {
+			pathType = md->pathType;
+			maxSlope = md->maxSlope;
+		}
 	}
 		
 	strength += ai->cb->GetUnitPower(unit->key);
 	buildSpeed += unit->def->buildSpeed;
-	// TODO: replace hardcoded constants with readable constants
-	size += 8*std::max<int>(unit->def->xsize, unit->def->zsize);
-	range = std::max<float>(ai->cb->GetUnitMaxRange(unit->key)*0.7f, range);
-	buildRange = std::max<float>(unit->def->buildDistance*1.5f, buildRange);
+	size += FOOTPRINT2REAL * std::max<int>(unit->def->xsize, unit->def->zsize);
+	range = std::max<float>(ai->cb->GetUnitMaxRange(unit->key), range);
+	buildRange = std::max<float>(unit->def->buildDistance, buildRange);
 	speed = std::min<float>(ai->cb->GetUnitSpeed(unit->key), speed);
 	los = std::max<float>(unit->def->losRadius, los);
+	mergeCats(unit->type->cats);
 }
 
 void CGroup::merge(CGroup &group) {
-	std::map<int, CUnit*>::iterator i;
-	for (i = group.units.begin(); i != group.units.end(); i++) {
-		CUnit *unit = i->second;
+	std::map<int, CUnit*>::iterator i = group.units.begin();
+	// NOTE: "group" will automatically be removed when last unit is transferred
+	while(i != group.units.end()) {
+		CUnit *unit = i->second; i++;
+		assert(unit->group == &group);
 		addUnit(*unit);
-	}
-	group.remove();
+	}	
 }
 
 float3 CGroup::pos() {
@@ -169,20 +226,20 @@ float3 CGroup::pos() {
 }
 
 int CGroup::maxLength() {
-	return size + 200;
+	return size + units.size() * FOOTPRINT2REAL;
 }
 
 void CGroup::assist(ATask &t) {
 	switch(t.t) {
 		case BUILD: {
 			CTaskHandler::BuildTask *task = dynamic_cast<CTaskHandler::BuildTask*>(&t);
-			CUnit  *unit  = task->group->units.begin()->second;
+			CUnit *unit  = task->group->firstUnit();
 			guard(unit->key);
 			break;
 		}
 
 		case ATTACK: {
-			//TODO: Calculate the flanking pos and attack from there
+			// TODO: Calculate the flanking pos and attack from there
 			CTaskHandler::AttackTask *task = dynamic_cast<CTaskHandler::AttackTask*>(&t);
 			attack(task->target);
 			break;
@@ -190,7 +247,8 @@ void CGroup::assist(ATask &t) {
 
 		case FACTORY_BUILD: {
 			CTaskHandler::FactoryTask *task = dynamic_cast<CTaskHandler::FactoryTask*>(&t);
-			guard(task->factory->key);
+			CUnit *unit  = task->group->firstUnit();
+			guard(unit->key);
 			break;
 		}
 
@@ -225,15 +283,17 @@ void CGroup::attack(int target, bool enqueue) {
 void CGroup::build(float3 &pos, UnitType *ut) {
 	std::map<int, CUnit*>::iterator alpha, i;
 	alpha = units.begin();
-	alpha->second->build(ut, pos);
-	for (i = ++alpha; i != units.end(); i++)
-		i->second->guard(alpha->first);
+	if (alpha->second->build(ut, pos)) {
+		for (i = ++alpha; i != units.end(); i++)
+			i->second->guard(alpha->first);
+	}
 }
 
 void CGroup::stop() {
 	std::map<int, CUnit*>::iterator i;
 	for (i = units.begin(); i != units.end(); i++)
 		i->second->stop();
+	ai->pathfinder->remove(*this);
 }
 
 void CGroup::guard(int target, bool enqueue) {
@@ -242,9 +302,84 @@ void CGroup::guard(int target, bool enqueue) {
 		i->second->guard(target, enqueue);
 }
 
+bool CGroup::canTouch(const float3 &goal) {
+	return !ai->pathfinder->isBlocked(goal.x, goal.z, pathType);
+}
+
+bool CGroup::canReach(const float3 &goal) {
+	if (!canTouch(goal))
+		return false;
+	if (pathType < 0)
+		return true;
+
+	float3 gpos = pos();
+	
+	return ai->pathfinder->pathExists(*this, gpos, goal);
+}
+
+bool CGroup::canAttack(int uid) {
+	const UnitDef *ud = ai->cbc->GetUnitDef(uid);
+	if (!ud)
+		return false;
+	const unsigned int ecats = UC(ud->id);
+	float3 epos = ai->cbc->GetUnitPos(uid);
+	
+	// FIXME: group can have ANTIAIR + some attacker tags
+	if ((cats&ANTIAIR) && !(ecats&AIR))
+		return false;
+
+	if ((cats&LAND) && epos.y < 0.0f)
+		return false;
+
+	// TODO: submarine units can't shoot land units
+
+	// TODO: add more tweaks based on physical weapon possibilities
+
+	return true;
+}
+
+bool CGroup::canAdd(CUnit *unit) {
+	// TODO:
+	return true;
+}
+		
+bool CGroup::canMerge(CGroup *group) {
+	/* TODO: can't merge: 
+	- static vs mobile
+	- water with non-water
+	- underwater with hovers?
+	- builders with non-builders?
+	- nukes with non-nukes
+	- lrpc with non-lrpc?
+	*/
+	return true;
+}
+
+CUnit* CGroup::firstUnit() {
+	if (units.empty())
+		return NULL;
+	return units.begin()->second;
+}
+
+
+void CGroup::mergeCats(unsigned int newcats) {
+	if (cats == 0)
+		cats = newcats;
+	else {
+		static unsigned int nonMergableCats[] = {SCOUTER, SEA, LAND, AIR, STATIC, MOBILE};
+		unsigned int oldcats = cats;
+		cats |= newcats;
+		for (int i = 0; i < sizeof(nonMergableCats) / sizeof(unsigned int); i++) {
+			unsigned int tempCat = nonMergableCats[i];
+			if (!(oldcats&tempCat) && cats&tempCat)
+				cats &= ~tempCat;
+		}
+	}
+}
+
 std::ostream& operator<<(std::ostream &out, const CGroup &group) {
 	std::stringstream ss;
-	ss << "Group(" << group.key << "):" << " amount(" << group.units.size() << ") [";
+	ss << "Group(" << group.key << "):" << " range(" << group.range << "), buildRange(" << group.buildRange << "), los(" << group.los << "), speed(" << group.speed << "), strength(" << group.strength << "), amount(" << group.units.size() << ") [";
 	std::map<int, CUnit*>::const_iterator i = group.units.begin();
 	for (i = group.units.begin(); i != group.units.end(); i++) {
 		ss << (*i->second) << ", ";

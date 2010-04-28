@@ -5,6 +5,7 @@
 #include <map>
 #include <stack>
 
+#include "CAI.h"
 #include "ARegistrar.h"
 #include "headers/Defines.h"
 #include "headers/HEngine.h"
@@ -20,36 +21,44 @@ class ATask: public ARegistrar {
 	public:
 		ATask(AIClasses *ai): 
 			ARegistrar(counter, std::string("task")) {
+			this->ai = ai;
+			active = false;
 			counter++;
 			isMoving = true;
 			pos = ZEROVECTOR;
 			group = NULL;
-  	        this->ai = ai;
+			bornFrame = ai->cb->GetCurrentFrame();
+			validateInterval = 5 * 30;
+			nextValidateFrame = validateInterval;
 		}
-		~ATask(){}
+		~ATask() {}
 
-		/* The task in {BUILD, ASSIST, ATTACK, MERGE, FACTORY_BUILD} */
+		bool active;
+			// task is active
+		int bornFrame;
+			// frame when task was created
+		int validateInterval;
+			// validate interval in frames
+		int nextValidateFrame; 
+			// next frame to execute task validation
 		task t;
-
-		/* Task counter */
+			// type of the task: BUILD, ASSIST, ATTACK, MERGE, FACTORY_BUILD
 		static int counter;
-
-		/* The assisters assisting this task */
+			// task counter, used as task key; shared among all AI instances
 		std::list<ATask*> assisters;
-
-		/* The group(s) involved */
+			// the assisters assisting this task
 		CGroup *group;
-
-		/* Determine if all groups in this task are moving or not */
+			// the group involved; for Merge task is null
 		bool isMoving;
-
-		/* The position to navigate too */
+			// determine if all groups in this task are moving or not
 		float3 pos;
+			// the position to navigate too
+			// TODO: make it as method because for assisting task this position
+			// may vary depending on master task 
 
 		/* Remove this task, unreg groups involved, and make them available
-		 * again 
-		 */
-		void remove();
+		   again */
+		virtual void remove();
 
 		/* Overload */
 		void remove(ARegistrar &group);
@@ -58,35 +67,44 @@ class ATask: public ARegistrar {
 		void addGroup(CGroup &group);
 
 		/* Scan and micro for resources */
-		void resourceScan();
+		bool resourceScan();
+
+		/* Scan and micro for damaged units */
+		bool repairScan();
 
 		/* Scan and micro for enemy targets */
-		void enemyScan(bool scout);
+		bool enemyScan(bool scout);
+
+		int lifeFrames() const;
+		
+		float lifeTime() const;
 
 		/* Update this task */
-		virtual void update() = 0;
+		virtual void update();
+
+		virtual bool validate() { return true; }
+
+		RegistrarType regtype() { return REGT_TASK; } 
+		
+		friend std::ostream& operator<<(std::ostream &out, const ATask &task);
 
 		AIClasses *ai;
 		char buf[512];
-		friend std::ostream& operator<<(std::ostream &out, const ATask &task);
 };
 
 class CTaskHandler: public ARegistrar {
 	public:
 		CTaskHandler(AIClasses *ai);
-		~CTaskHandler(){};
+		~CTaskHandler() {};
 
 		struct BuildTask: public ATask {
-			BuildTask(AIClasses *_ai): ATask(_ai){t = BUILD; timer = 0;}
+			BuildTask(AIClasses *_ai): ATask(_ai) {t = BUILD;}
 
 			/* The build task */
 			buildType bt;
 
 			/* The ETA in frames */
-			unsigned eta;
-
-			/* Time this buildtask has been active */
-			unsigned timer;
+			unsigned int eta;
 
 			/* The UnitType to build */
 			UnitType *toBuild;
@@ -94,15 +112,15 @@ class CTaskHandler: public ARegistrar {
 			/* Update the build task, assumes 1 group on a task! */
 			void update();
 
+			bool validate();
+
 			bool assistable(CGroup &group, float &travelTime);
 
-			void reset(float3 &pos, buildType bt, UnitType *ut);
+			//void reset(float3 &pos, buildType bt, UnitType *ut);
 		};
 
 		struct FactoryTask: public ATask {
 			FactoryTask(AIClasses *_ai): ATask(_ai){t = FACTORY_BUILD;}
-
-			CUnit *factory;
 
 			/* set the factorytask to wait including assisters */
 			void setWait(bool wait);
@@ -112,7 +130,7 @@ class CTaskHandler: public ARegistrar {
 
 			bool assistable(CGroup &group);
 
-			void reset(CUnit &factory);
+			//void reset(CUnit &factory);
 		};
 
 		struct AssistTask: public ATask {
@@ -129,22 +147,21 @@ class CTaskHandler: public ARegistrar {
 
 			/* overload */
 			void remove(ARegistrar& group);
-			
-			void reset(ATask &task);
 		};
 
 		struct AttackTask: public ATask {
 			AttackTask(AIClasses *_ai): ATask(_ai) {t = ATTACK;}
-
-			/* The target to attack */
+			
 			int target;
+				// the target to attack
+			std::string enemy;
 
 			/* Update the attack task */
 			void update();
 
-			std::string enemy;
+			bool validate();
 
-			void reset(int target);
+			//void reset(int target);
 		};
 
 		struct MergeTask: public ATask {
@@ -178,8 +195,8 @@ class CTaskHandler: public ARegistrar {
 		/* build type to string */
 		static std::map<buildType, std::string> buildStr;
 
-		/* Tasks to string */
-		std::map<task, std::string> taskStr;
+		/* task type to string */
+		static std::map<task, std::string> taskStr;
 
 		/* Overload */
 		void remove(ARegistrar &task);
@@ -197,10 +214,11 @@ class CTaskHandler: public ARegistrar {
 		void addMergeTask(std::map<int,CGroup*> &groups);
 
 		/* Add a fresh factory task */
-		void addFactoryTask(CUnit &factory);
+		void addFactoryTask(CGroup &group);
 
-		/* Remove a task */
-		void removeTask(CGroup &group);
+		ATask* getTask(CGroup &group);
+
+		ATask* getTaskByTarget(int);
 
 		/* Get the group destination */
 		float3 getPos(CGroup &group);
@@ -219,7 +237,7 @@ class CTaskHandler: public ARegistrar {
 		std::map<int, ATask*> groupToTask;
 
 		/* Calculate avg range and pos of groups */
-		static void getGroupsPos(std::vector<CGroup*> &groups, float3 &pos);
+		//static void getGroupsPos(std::vector<CGroup*> &groups, float3 &pos);
 };
 
 #endif

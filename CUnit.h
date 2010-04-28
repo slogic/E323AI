@@ -6,9 +6,11 @@
 
 #include "ARegistrar.h"
 #include "headers/HEngine.h"
+#include "headers/Defines.h"
 
 class AIClasses;
 class UnitType;
+class CGroup;
 
 /* Building facings, NOTE: this order is important! */
 enum facing{SOUTH, EAST, NORTH, WEST, NONE};
@@ -18,7 +20,11 @@ enum quadrant {NORTH_WEST, NORTH_EAST, SOUTH_WEST, SOUTH_EAST};
 
 class CUnit: public ARegistrar {
 	public:
-		CUnit(): ARegistrar() {}
+		CUnit(): ARegistrar() {
+			def = NULL;
+			type = NULL;
+			builtBy = 0;
+		}
 		CUnit(AIClasses *ai, int uid, int bid): ARegistrar(uid) {
 			this->ai = ai;
 			reset(uid, bid);
@@ -27,8 +33,9 @@ class CUnit: public ARegistrar {
 
 		const UnitDef *def;
 		UnitType *type;
-		int builder;
+		int builtBy;
 		int techlvl;
+		CGroup *group; // group unit belongs to
 
 		/* Remove the unit from everywhere registered */
 		void remove();
@@ -40,6 +47,9 @@ class CUnit: public ARegistrar {
 		void reset(int uid, int bid);
 
 		int queueSize();
+
+		/* Determine if this unit belongs to economic tracker */
+		bool isEconomy();
 
 		/* Attack a unit */
 		bool attack(int target, bool enqueue = false);
@@ -80,6 +90,7 @@ class CUnit: public ARegistrar {
 		bool wait();
 
 		bool reclaim(float3 pos, float radius);
+		bool reclaim(int target, bool enqueue = false);
 
 		/* Undo wait command */
 		bool unwait();
@@ -90,6 +101,8 @@ class CUnit: public ARegistrar {
 
 		bool isMicroing();
 
+		bool isOn();
+
 		float3 pos();
 
 		/* Get best facing */
@@ -98,12 +111,18 @@ class CUnit: public ARegistrar {
 		/* Get quadrant */
 		quadrant getQuadrant(float3 &pos);
 
+		RegistrarType regtype() { return REGT_UNIT; } 
+
+		static bool isMilitary(const UnitDef* ud) { return !ud->weapons.empty(); }
+		static bool isStatic(const UnitDef* ud) { return ud->speed < 0.0001f; }
+		static bool isDefense(const UnitDef* ud) { return isStatic(ud) && isMilitary(ud); }
+
 		/* output stream */
 		friend std::ostream& operator<<(std::ostream &out, const CUnit &unit);
 
-	private:
 		AIClasses *ai;
 
+	private:
 		bool microing;
 
 		Command createPosCommand(int cmd, float3 pos, float radius = -1.0f, facing f = NONE);
