@@ -6,6 +6,7 @@
 #define MAX_INT   2147483647
 #define MAX_FLOAT float(MAX_INT)
 #define EPSILON   1/MAX_FLOAT
+#define EPS 0.0001f
 
 #define ERRORVECTOR float3(-1.0f,0.0f,0.0f)
 #define ZEROVECTOR  float3(0.0f,0.0f,0.0f)
@@ -13,8 +14,9 @@
 
 /* AI meta data */
 #define AI_VERSION_NR  aiexport_getVersion()
-#define AI_VERSION     std::string("E323AI ") + AI_VERSION_NR + " - High Templar"
-#define AI_CREDITS     "Error323 - folkerthuizinga@gmail.com"
+#define AI_NAME        std::string("E323AI")
+#define AI_VERSION     AI_NAME + " " + AI_VERSION_NR + " - High Templar (" + __DATE__ + ")"
+#define AI_CREDITS     "Error323 & Simon Logic"
 #define AI_NOTES       "This A.I. mainly focusses on the XTA and BA mods"
 
 /* Folders */
@@ -26,15 +28,17 @@
 #define CONFIG_TEMPLATE "template-config.cfg"
 
 /* Misc macro's */
-#define UD(u) (ai->cb->GetUnitDef(u))
-#define UT(u) (&(ai->unittable->units[u]))
-#define ID(x,z) (z*X+x)
+#define UD(udid) (ai->cb->GetUnitDef(udid))
+#define UT(udid) (&(ai->unittable->units[udid]))
+#define UC(udid) (ai->unittable->units[udid].cats)
+#define ID(x,z) ((z)*X+(x))
+#define ID_GRAPH(x,z) ((z)*XX+(x))
 
 /* Metal to Energy ratio */
 #define METAL2ENERGY 60
 
 /* Max features */
-#define MAX_FEATURES 10
+#define MAX_FEATURES 25
 
 /* Max enemies */
 #define MAX_ENEMIES 20
@@ -42,21 +46,36 @@
 /* Max enemy units */
 #define MAX_UNITS_AI 500
 
-#define MAX_UNITS_MILITARY 50
-
 /* Map ratios */
 #define HEIGHT2REAL 8
 #define I_MAP_RES 8 /* Inverse map resolution (must be even) */
 #define HEIGHT2SLOPE 2
+#define FOOTPRINT2REAL 8
 
 /* Max factory Assisters */
 #define FACTORY_ASSISTERS 6
+
+/* Max number of scouts per group */
+#define MAX_SCOUTS_IN_GROUP 3
+
+/* Max number of idle scout groups to prevent building unnecessary scouts */
+#define MAX_IDLE_SCOUT_GROUPS 3
+
+/* Critical number of units per group where pathfinding stalls the game */
+#define GROUP_CRITICAL_MASS 14
+
+/* Max unit weapon range to be considered by threatmap algo */
+#define MAX_WEAPON_RANGE_FOR_TM 1000.0f
 
 /* Number of multiplex iterations */
 #define MULTIPLEXER 10 
 
 /* Draw time */
 #define DRAW_TIME MULTIPLEXER*30
+
+
+/* Stats url */
+#define UPLOAD_URL "http://fhuizing.pythonic.nl/ai-stats.php"
 
 /* We gonna use math.h constants */
 #define _USE_MATH_DEFINES
@@ -96,8 +115,9 @@ enum unitCategory {
 
 	KBOT         = (1<<26),
 	VEHICLE      = (1<<27),
+	HOVER        = (1<<28),
 
-	DEFENSE      = (1<<28)
+	DEFENSE      = (1<<29)
 };
 
 /* Build priorities */
