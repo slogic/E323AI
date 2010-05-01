@@ -74,11 +74,8 @@ void ATask::addGroup(CGroup &g) {
 }
 
 bool ATask::enemyScan(bool scout) {
-	//PROFILE(tasks-enemyscan)
-	
-	const CUnit *unit = group->firstUnit();
-	std::multimap<float, int> candidates;
 	float3 gpos = group->pos();
+	std::multimap<float, int> candidates;
 	
 	int numEnemies = ai->cbc->GetEnemyUnits(&ai->unitIDs[0], gpos, scout ? 3.0f * group->range: 2.0f * group->range, MAX_ENEMIES);
 	for (int i = 0; i < numEnemies; i++) {
@@ -92,7 +89,7 @@ bool ATask::enemyScan(bool scout) {
 		float3 epos = ai->cbc->GetUnitPos(euid);
 		float dist = gpos.distance2D(epos);
 		if (!ai->cbc->IsUnitCloaked(euid))
-			if (!((unit->type->cats&ANTIAIR) ^ (ecats&AIR)))
+			if (!((group->cats&ANTIAIR) ^ (ecats&AIR)))
 				candidates.insert(std::pair<float,int>(dist, euid));
 	}
 
@@ -103,7 +100,7 @@ bool ATask::enemyScan(bool scout) {
 			const UnitDef *ud = ai->cbc->GetUnitDef(i->second);
 			const unsigned int ecats = UC(ud->id);
 			float3 epos = ai->cbc->GetUnitPos(i->second);
-			threat = ai->threatmap->getThreat(epos, scout ? 300.0f: 0.0f);
+			threat = ai->threatmap->getThreat(epos, scout ? 300.0f: 0.0f, group->cats&AIR ? TMT_AIR : TMT_SURFACE);
 			if (scout) {
 				// scouts like safe places
 				if (threat <= 1.1f /*|| (ecats&SCOUTER && group->strength > ai->cbc->GetUnitPower(i->second))*/)
@@ -122,7 +119,7 @@ bool ATask::enemyScan(bool scout) {
 			if (scout)
 				LOG_II("ATask::enemyScan scout " << (*group) << " is microing enemy target Unit(" << i->second << ") with threat =" << threat)
 			else
-				LOG_II("ATask::enemyScan group " << (*group) << " is microing enemy targets")
+				LOG_II("ATask::enemyScan engage " << (*group) << " is microing enemy targets")
 			return true;
 		}
 	}
@@ -729,7 +726,7 @@ bool CTaskHandler::AttackTask::validate() {
 		return true; // too far to panic
 
 	if (scoutGroup) {
-		if (ai->threatmap->getThreat(pos, 300.0f) > group->strength)
+		if (ai->threatmap->getThreat(pos, 300.0f, group->cats&AIR ? TMT_AIR : TMT_SURFACE) > group->strength)
 			return false;
 	}
 	
