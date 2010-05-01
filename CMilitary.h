@@ -13,7 +13,11 @@ class CUnit;
 class CGroup;
 class AIClasses;
 
-enum groupType{SCOUT, ENGAGE, BOMBER};
+enum MilitaryGroupBehaviour {
+	SCOUT,
+	ENGAGE, 
+	BOMBER
+};
 
 class CMilitary: public ARegistrar {
 	public:
@@ -27,7 +31,7 @@ class CMilitary: public ARegistrar {
 		void addUnit(CUnit &unit);
 
 		/* Returns a fresh CGroup instance */
-		CGroup* requestGroup(groupType type);
+		CGroup* requestGroup(MilitaryGroupBehaviour type);
 
 		/* update callin */
 		void update(int groupsize);
@@ -52,7 +56,7 @@ class CMilitary: public ARegistrar {
 		std::vector<int> occupiedTargets;
 
 		/* Mergable groups */
-		std::map<int,CGroup*> mergeScouts, mergeGroups;
+		std::map<int,CGroup*> mergeGroups;
 
 		/* Select a target */
 		int selectTarget(CGroup &group, float radius, std::vector<int> &targets);

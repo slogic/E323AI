@@ -32,7 +32,6 @@ void CMilitary::remove(ARegistrar &object) {
 	
 	activeScoutGroups.erase(group->key);
 	activeAttackGroups.erase(group->key);
-	mergeScouts.erase(group->key);
 	mergeGroups.erase(group->key);
 	
 	for (std::map<int,CGroup*>::iterator i = assemblingGroups.begin(); i != assemblingGroups.end(); i++) {
@@ -80,7 +79,7 @@ void CMilitary::addUnit(CUnit &unit) {
 	}
 }
 
-CGroup* CMilitary::requestGroup(groupType type) {
+CGroup* CMilitary::requestGroup(MilitaryGroupBehaviour type) {
 	CGroup *group = ReusableObjectFactory<CGroup>::Instance();
 	group->ai = ai;
 	group->reset();
@@ -126,7 +125,7 @@ int CMilitary::selectTarget(CGroup &group, float radius, std::vector<int> &targe
 		const unsigned int ecats = UC(ud->id);
 		float3 epos = ai->cbc->GetUnitPos(tempTarget);
 		float dist = ourPos.distance2D(epos);
-		dist += (factor * ai->threatmap->getThreat(epos, radius)) - unitDamageK * 150.0f;
+		dist += (factor * ai->threatmap->getThreat(epos, radius, group.cats&AIR ? TMT_AIR : TMT_SURFACE)) - unitDamageK * 150.0f;
 		if (!scout) {
 			if (ecats&SCOUTER && !ai->defensematrix->isPosInBounds(epos))
 				dist += 10000.0f;
@@ -233,9 +232,9 @@ void CMilitary::update(int frame) {
 
 		if (!assistNearbyTask) {
 			float3 tpos = ai->cbc->GetUnitPos(target);
-			float threat = ai->threatmap->getThreat(tpos, 0.0f);
+			float threat = ai->threatmap->getThreat(tpos, 0.0f, group->cats&AIR ? TMT_AIR : TMT_SURFACE);
 			if (threat < group->strength) {
-				mergeScouts.erase(group->key);
+				mergeGroups.erase(group->key);
 				ai->tasks->addAttackTask(target, *group);
 				break;
 			}
@@ -243,7 +242,7 @@ void CMilitary::update(int frame) {
 				if ((threat / group->strength) <= MAX_SCOUTS_IN_GROUP) {
 					if (group->units.size() < MAX_SCOUTS_IN_GROUP
 					&& activeScoutGroups.size() > 1)
-						mergeScouts[group->key] = group;
+						mergeGroups[group->key] = group;
 					else
 						assistNearbyTask = true;
 				}
@@ -270,46 +269,16 @@ void CMilitary::update(int frame) {
 				}
 				if (task && minDist < 1000.0f) {
 					ai->tasks->addAssistTask(*task, *group);
-					mergeScouts.erase(group->key);
+					mergeGroups.erase(group->key);
 					break;
 				}
 			}
 
 			/* SLOGIC: do not merge without need!
 			if (group->units.size() < MAX_SCOUTS_IN_GROUP)
-				mergeScouts[group->key] = group;
+				mergeGroups[group->key] = group;
 			*/
 		}
-		else {
-		}
-
-		// prevent merging of more than 2 groups
-		/*
-		if(mergeScouts.size() >= 2)
-			break;
-		*/
-	}
-
-	/* Merge the scout groups that were not strong enough */
-	if (mergeScouts.size() >= 2) {
-		std::map<int,CGroup*> merge;
-		for (std::map<int,CGroup*>::iterator base = mergeScouts.begin(); base != mergeScouts.end(); base++) {
-			for (std::map<int,CGroup*>::iterator compare = mergeScouts.begin(); compare != mergeScouts.end(); compare++) {
-				if (base->second->key != compare->second->key) {
-					if (base->second->pos().distance2D(compare->second->pos()) < 1000.0f) {
-						merge[base->first] = base->second;
-						merge[compare->first] = compare->second;
-					}
-				}
-				if (!merge.empty())
-					break;
-			}
-		}
-		
-		if (!merge.empty())
-			ai->tasks->addMergeTask(merge);
-
-		mergeScouts.clear();
 	}
 
 	/* Give idle, strong enough groups a new attack plan */
@@ -355,7 +324,7 @@ void CMilitary::update(int frame) {
 
 		/* Determine if the group has the strength */
 		float3 targetpos    = ai->cbc->GetUnitPos(target);
-		bool isStrongEnough = group->strength >= ai->threatmap->getThreat(targetpos, 0.0f);
+		bool isStrongEnough = group->strength >= ai->threatmap->getThreat(targetpos, 0.0f, group->cats&AIR ? TMT_AIR : TMT_SURFACE);
 		bool isSizeEnough   = group->units.size() >= ai->cfgparser->getMinGroupSize(group->techlvl);
 
 		if (!isAssembling && !isStrongEnough)
@@ -370,8 +339,42 @@ void CMilitary::update(int frame) {
 
 	/* Merge the groups that were not strong enough */
 	if (mergeGroups.size() >= 2) {
-		ai->tasks->addMergeTask(mergeGroups);
-		mergeGroups.clear();
+		std::map<int,CGroup*> merge;
+		for (std::map<int,CGroup*>::iterator base = mergeGroups.begin(); base != mergeGroups.end(); base++) {
+			if (!base->second->busy) {
+				for (std::map<int,CGroup*>::iterator compare = mergeGroups.begin(); compare != mergeGroups.end(); compare++) {
+					if (!compare->second->busy && base->first != compare->first) {
+						if (base->second->canMerge(compare->second)) {
+							bool canMerge;
+							
+							if (base->second->cats&SCOUTER)
+								canMerge = (base->second->pos().distance2D(compare->second->pos()) < 1000.0f);
+							else
+								canMerge = true;
+
+							if (canMerge) {
+								if (merge.empty())
+									merge[base->first] = base->second;
+								merge[compare->first] = compare->second;
+							}
+						}
+					}
+				}
+				
+				if (!merge.empty()) {
+					ai->tasks->addMergeTask(merge);		
+					merge.clear();
+				}
+			}
+		}
+
+		// remove busy (merging) groups...
+		std::map<int,CGroup*>::iterator it = mergeGroups.begin();
+		while(it != mergeGroups.end()) {
+			int key = it->first; it++;
+			if (mergeGroups[key]->busy)
+				mergeGroups.erase(key);
+		}
 	}
 	
 	bool gotAirFactory = ai->unittable->gotFactory(AIR);
