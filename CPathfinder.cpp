@@ -350,10 +350,10 @@ void CPathfinder::updateFollowers() {
 		else
 			maxGroupLength *= 2.0f;
 	
-		// NOTE: for aircraft only Brawler type units can regroup
+		// NOTE: among aircraft units only Brawler type units (ASSAULT) can regroup
 		bool enableRegrouping = 
 			group->units.size() < GROUP_CRITICAL_MASS 
-			&& (!(group->cats&AIR) || (group->cats&ASSAULT));
+			&& (!(group->cats&AIR) || (group->cats&(ASSAULT|SNIPER|ARTILLERY|ANTIAIR)) == ASSAULT);
 		
 		M.clear();
 

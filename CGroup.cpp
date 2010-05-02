@@ -332,7 +332,7 @@ bool CGroup::canAttack(int uid) {
 	if ((ecats&SUBMARINE) && !(cats&TORPEDO))
 		return false;
 	*/
-	if (epos.y < 0.0f && (cats&LAND) /*&& !(cats&TORPEDO)*/)
+	if (epos.y < 0.0f && (cats&(LAND|AIR)) /*&& !(cats&TORPEDO)*/)
 		return false;
 	
 	if ((ecats&LAND) && pos().y < 0.0f)
@@ -349,7 +349,7 @@ bool CGroup::canAdd(CUnit *unit) {
 }
 		
 bool CGroup::canMerge(CGroup *group) {
-	static unsigned int nonMergableCats[] = {SEA, LAND, AIR, HOVER, STATIC, MOBILE, BUILDER};
+	static unsigned int nonMergableCats[] = {SEA, LAND, AIR, HOVER, ATTACKER, STATIC, MOBILE, BUILDER};
 
 	unsigned int c = cats&group->cats;
 	
@@ -359,6 +359,13 @@ bool CGroup::canMerge(CGroup *group) {
 	for (int i = 0; i < sizeof(nonMergableCats) / sizeof(unsigned int); i++) {
 		unsigned int tag = nonMergableCats[i];
 		if ((cats&tag) && !(c&tag))
+			return false;
+	}
+
+	// NOTE: aircraft units have more restricted merge rules
+	// TODO: refactor with introducing Group behaviour property?
+	if (cats&AIR) {
+		if ((cats&ASSAULT) && !(c&ASSAULT))
 			return false;
 	}
 	
@@ -384,6 +391,10 @@ void CGroup::mergeCats(unsigned int newcats) {
 				cats &= ~tag;
 		}
 	}
+}
+
+float CGroup::getThreat(float3 &target, float radius) {
+	return ai->threatmap->getThreat(target, radius, this);
 }
 
 std::ostream& operator<<(std::ostream &out, const CGroup &group) {

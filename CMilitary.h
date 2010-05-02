@@ -15,7 +15,7 @@ class AIClasses;
 
 enum MilitaryGroupBehaviour {
 	SCOUT,
-	ENGAGE, 
+	ENGAGE,
 	BOMBER
 };
 
@@ -41,7 +41,7 @@ class CMilitary: public ARegistrar {
 	private:
 		AIClasses *ai;
 
-		void prepareTargets(std::vector<int> &all, std::vector<int> &harass);
+		void prepareTargets(std::vector<int> &all, std::vector<int> &harass, std::vector<int> &defense);
 
 		/* Current group per factory <factory, CGroup*> */
 		std::map<int, CGroup*> assemblingGroups;
@@ -51,6 +51,9 @@ class CMilitary: public ARegistrar {
 
 		/* The ingame attack groups */
 		std::map<int, CGroup*> activeAttackGroups;
+
+		/* The ingame attack groups */
+		std::map<int, CGroup*> activeBomberGroups;
 
 		/* Occupied targets */
 		std::vector<int> occupiedTargets;
