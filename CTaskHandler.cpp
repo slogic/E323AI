@@ -266,7 +266,7 @@ std::ostream& operator<<(std::ostream &out, const ATask &atask) {
 
 		case ASSIST: {
 			const CTaskHandler::AssistTask *task = dynamic_cast<const CTaskHandler::AssistTask*>(&atask);
-			ss << "AssistTask(" << task->key << ") assisting(" << (*task->assist) << ") ";
+			ss << "AssistTask(" << task->key << ") assisting Task(" << (task->assist->key) << ") ";
 			ss << (*(task->group));
 		} break;
 
@@ -712,7 +712,7 @@ void CTaskHandler::addAttackTask(int target, CGroup &group) {
 bool CTaskHandler::AttackTask::validate() {
 	bool scoutGroup = group->cats&SCOUTER;
 	float targetDistance = pos.distance2D(group->pos());
-
+	
 	if (!scoutGroup && lifeTime() > 20.0f) {
 		const UnitDef *eud = ai->cbc->GetUnitDef(target);
 		if (eud) {
@@ -722,7 +722,7 @@ bool CTaskHandler::AttackTask::validate() {
 		}
 	}
 	
-	if (targetDistance > 600.0f)
+	if (targetDistance > (3.0f * group->range))
 		return true; // too far to panic
 
 	if (scoutGroup) {
@@ -894,7 +894,7 @@ void CTaskHandler::MergeTask::update() {
 	/* We have at least two groups, now we can merge */
 	if (mergable.size() >= 2) {
 		CGroup *alpha = mergable[0];
-		for (unsigned j = 1; j < mergable.size(); j++) {
+		for (unsigned int j = 1; j < mergable.size(); j++) {
 			LOG_II("MergeTask::update merging " << (*mergable[j]) << " with " << (*alpha))
 			alpha->merge(*mergable[j]);
 		}
