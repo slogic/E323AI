@@ -74,7 +74,7 @@ float CThreatMap::getThreat(float3 &center, float radius, ThreatMapType type) {
 }
 
 float CThreatMap::getThreat(float3 &center, float radius, CGroup *group) {
-	unsigned int cats = group->firstUnit()->type->cats;
+	unsigned int cats = group->cats;
 	ThreatMapType type;
 	
 	if (cats&LAND)
