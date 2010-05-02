@@ -319,19 +319,24 @@ bool CGroup::canReach(const float3 &goal) {
 
 bool CGroup::canAttack(int uid) {
 	const UnitDef *ud = ai->cbc->GetUnitDef(uid);
-	if (!ud)
+	
+	if (ud == NULL || ai->cbc->IsUnitCloaked(uid))
 		return false;
+	
 	const unsigned int ecats = UC(ud->id);
 	float3 epos = ai->cbc->GetUnitPos(uid);
 	
-	// FIXME: group can have ANTIAIR + some attacker tags
-	if ((cats&ANTIAIR) && !(ecats&AIR))
+	if ((ecats&AIR) && !(cats&ANTIAIR))
 		return false;
-
-	if ((cats&LAND) && epos.y < 0.0f)
+	/*
+	if ((ecats&SUBMARINE) && !(cats&TORPEDO))
 		return false;
-
-	// TODO: submarine units can't shoot land units
+	*/
+	if (epos.y < 0.0f && (cats&LAND) /*&& !(cats&TORPEDO)*/)
+		return false;
+	
+	if ((ecats&LAND) && pos().y < 0.0f)
+		return false;
 
 	// TODO: add more tweaks based on physical weapon possibilities
 
