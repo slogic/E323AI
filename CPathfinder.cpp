@@ -336,7 +336,7 @@ void CPathfinder::updateFollowers() {
 		CGroup *group = groups[path->first];
 		
 		if (group->isMicroing()
-		|| currentFrame - regrouping[group->key] <= FRAMES_TO_REGROUP) {
+		|| (currentFrame - regrouping[group->key]) <= FRAMES_TO_REGROUP) {
 			groupnr++;
 			continue;
 		}
