@@ -66,6 +66,8 @@ class CMilitary: public ARegistrar {
 		/* Request a unit for building using a roulette wheel system */
 		unsigned requestUnit(unsigned int basecat);
 
+		bool isAssemblingGroup(CGroup *group);
+
 		char buf[1024];
 };
 

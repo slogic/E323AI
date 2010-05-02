@@ -107,14 +107,13 @@ int CMilitary::selectTarget(CGroup &group, float radius, std::vector<int> &targe
 	float3 ourPos = group.pos();
 
 	/* First sort the targets on distance */
-	for (unsigned i = 0; i < targets.size(); i++) {
+	for (unsigned int i = 0; i < targets.size(); i++) {
 		int tempTarget = targets[i];
-		const UnitDef *ud = ai->cbc->GetUnitDef(tempTarget);
-
-		if (ud == NULL || ai->cbc->IsUnitCloaked(tempTarget))
-			continue;
+		
 		if (!group.canAttack(tempTarget))
 			continue;
+		
+		const UnitDef *ud = ai->cbc->GetUnitDef(tempTarget);
 
 		float unitMaxHealth = ai->cbc->GetUnitMaxHealth(tempTarget);
 		if (unitMaxHealth > EPS)
@@ -126,9 +125,12 @@ int CMilitary::selectTarget(CGroup &group, float radius, std::vector<int> &targe
 		float3 epos = ai->cbc->GetUnitPos(tempTarget);
 		float dist = ourPos.distance2D(epos);
 		dist += (factor * ai->threatmap->getThreat(epos, radius, group.cats&AIR ? TMT_AIR : TMT_SURFACE)) - unitDamageK * 150.0f;
-		if (!scout) {
-			if (ecats&SCOUTER && !ai->defensematrix->isPosInBounds(epos))
-				dist += 10000.0f;
+		if (ai->defensematrix->isPosInBounds(epos))
+			// enemy at our base has higher priority
+			dist -= 1000.0f;
+		else if(!scout && ecats&SCOUTER) {
+			// remote scouts are not interesting for engage groups
+			dist += 10000.0f;
 		}
 		
 		if(dist < estimate) {
@@ -144,9 +146,12 @@ void CMilitary::prepareTargets(std::vector<int> &all, std::vector<int> &harass) 
 	std::map<int, CTaskHandler::AttackTask*>::iterator j;
 	std::vector<int> targets;
 
+	// NOTE: tasks for different tactic groups can overlap
+
 	occupiedTargets.clear();
 	for (j = ai->tasks->activeAttackTasks.begin(); j != ai->tasks->activeAttackTasks.end(); j++)
-		occupiedTargets.push_back(j->second->target);
+		if (!(j->second->group->cats&SCOUTER))
+			occupiedTargets.push_back(j->second->target);
 		
 	targets.insert(targets.end(), ai->intel->attackers.begin(), ai->intel->attackers.end());
 	targets.insert(targets.end(), ai->intel->energyMakers.begin(), ai->intel->energyMakers.end());
@@ -163,8 +168,6 @@ void CMilitary::prepareTargets(std::vector<int> &all, std::vector<int> &harass) 
 	filterOccupiedTargets(targets, all);
 	targets.clear();
 
-	// NOTE: harass tasks can overlap with all tasks because scouter units are
-	// usually faster
 	occupiedTargets.clear();
 	for (j = ai->tasks->activeAttackTasks.begin(); j != ai->tasks->activeAttackTasks.end(); j++) {
 		if (j->second->group->cats&SCOUTER)
@@ -200,17 +203,13 @@ void CMilitary::filterOccupiedTargets(std::vector<int> &source, std::vector<int>
 void CMilitary::update(int frame) {
 	int busyScoutGroups = 0;
 	int target = 0;
+	std::vector<int> all, harass;
+	std::map<int, CGroup*>::iterator i;
 
-	std::vector<int> all, harras;
-	
-	prepareTargets(all, harras);
-
-	std::map<int, CGroup*>::iterator i, k;
+	prepareTargets(all, harass);
 	
 	/* Give idle scouting groups a new attack plan */
 	for (i = activeScoutGroups.begin(); i != activeScoutGroups.end(); i++) {
-		bool assistNearbyTask = false;	
-		
 		CGroup *group = i->second;
 		
 		/* This group is busy, don't bother */
@@ -222,13 +221,13 @@ void CMilitary::update(int frame) {
 		// NOTE: once target is not found it will never appear during
 		// current loop execution
 		if (target >= 0) {
-			target = selectTarget(*group, 300.0f, harras);
-			/* There are no harras targets available */
+			target = selectTarget(*group, 300.0f, harass);
+			/* There are no harass targets available */
 			if (target < 0)
 				target = selectTarget(*group, 300.0f, all);
 		}
-		else
-			assistNearbyTask = true;
+		
+		bool assistNearbyTask = target < 0;
 
 		if (!assistNearbyTask) {
 			float3 tpos = ai->cbc->GetUnitPos(target);
@@ -289,43 +288,37 @@ void CMilitary::update(int frame) {
 		if (group->busy || !ai->unittable->canPerformTask(*group->firstUnit()))
 			continue;
 
-		/* Determine if this group is the assembling group */
-		bool isAssembling = false;
-		for (k = assemblingGroups.begin(); k != assemblingGroups.end(); k++) {
-			if (k->second->key == group->key) {
-				isAssembling = true;
-				break;
-			}
-		}
-
 		/* Select a target */
-		float3 pos = group->pos();
-		int target = selectTarget(*group, 0.0f, all);
+		target = selectTarget(*group, 0.0f, all);
 
 		/* There are no targets available, assist an attack */
-		if (target == -1) {
+		if (target < 0) {
 			if (!ai->tasks->activeAttackTasks.empty() && group->units.size() > 3) {
 				float minStrength = std::numeric_limits<float>::max();
 				ATask* task = NULL;
 				std::map<int, CTaskHandler::AttackTask*>::iterator i;
 				for (i = ai->tasks->activeAttackTasks.begin(); i != ai->tasks->activeAttackTasks.end(); i++) {
 					if (i->second->group->strength < minStrength) {
-						task = i->second;
-						minStrength = i->second->group->strength;
+						if (group->canAttack(i->second->target)) {
+							task = i->second;
+							minStrength = i->second->group->strength;
+						}
 					}
 				}
 				if (task) {
 					ai->tasks->addAssistTask(*task, *group);
 					mergeGroups.erase(group->key);
+					break;
 				}
 			}
-			break;
+			continue;			
 		}
 
 		/* Determine if the group has the strength */
 		float3 targetpos    = ai->cbc->GetUnitPos(target);
 		bool isStrongEnough = group->strength >= ai->threatmap->getThreat(targetpos, 0.0f, group->cats&AIR ? TMT_AIR : TMT_SURFACE);
 		bool isSizeEnough   = group->units.size() >= ai->cfgparser->getMinGroupSize(group->techlvl);
+		bool isAssembling   = isAssemblingGroup(group);
 
 		if (!isAssembling && !isStrongEnough)
 			mergeGroups[group->key] = group;
@@ -376,7 +369,7 @@ void CMilitary::update(int frame) {
 				mergeGroups.erase(key);
 		}
 	}
-	
+
 	bool gotAirFactory = ai->unittable->gotFactory(AIR);
 	
 	// if all scouts are busy create some more...
@@ -416,4 +409,14 @@ int CMilitary::idleScoutGroupsNum() {
 		if(!i->second->busy)
 			result++;
 	return result;
+}
+
+bool CMilitary::isAssemblingGroup(CGroup *group) {
+	std::map<int, CGroup*>::iterator i;
+	for (i = assemblingGroups.begin(); i != assemblingGroups.end(); i++) {
+		if (i->second->key == group->key) {
+			return true;
+		}
+	}
+	return false;	
 }
