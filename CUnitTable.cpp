@@ -488,14 +488,16 @@ void CUnitTable::getBuildables(UnitType *ut, unsigned include, unsigned exclude,
 		}
 	}
 	if (candidates.empty())
-		LOG_WW("CUnitTable::getBuildables no candidates found INCLUDE("<<debugCategories(include)<<") EXCLUDE("<<debugCategories(exclude)<<") for unitdef(" << ut->def->humanName << ")")
+		LOG_WW("CUnitTable::getBuildables no candidates found INCLUDE(" << debugCategories(include) << ") EXCLUDE("<<debugCategories(exclude)<<") for unitdef(" << ut->def->humanName << ")")
 }
 
 UnitType* CUnitTable::canBuild(UnitType *ut, unsigned int c) {
+	/*
 	std::vector<unitCategory> utcats;
 	for (unsigned int i = 0; i < cats.size(); i++)
 		if (c&cats[i])
 			utcats.push_back(cats[i]);
+	
 	std::map<int, UnitType*>::iterator j;
 	for (j = ut->canBuild.begin(); j != ut->canBuild.end(); j++) {
 		bool qualifies = true;
@@ -506,7 +508,15 @@ UnitType* CUnitTable::canBuild(UnitType *ut, unsigned int c) {
 		if (qualifies)
 			return j->second;
 	}
+	*/
+	std::map<int, UnitType*>::iterator it;
+	for (it = ut->canBuild.begin(); it != ut->canBuild.end(); it++) {
+		if ((it->second->cats & c) == c)
+			return it->second;
+	}
+
 	LOG_WW("CUnitTable::canBuild failed to build " << debugCategories(c))
+	
 	return NULL;
 }
 

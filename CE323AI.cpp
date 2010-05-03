@@ -106,7 +106,7 @@ void CE323AI::UnitCreated(int uid, int bid) {
 		ai->economy->init(*unit);
 	}
 
-	// HACK: for metal extractors only
+	// HACK: for metal extractors & geoplants only
 	ai->economy->addUnitOnCreated(*unit);
 
 	if (bid < 0)
