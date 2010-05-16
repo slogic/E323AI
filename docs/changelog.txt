@@ -10,7 +10,7 @@ v3.21.0 [2010-05-??]
 * WIND & TIDAL tags removed
 * fixed multiple AI info printing in chat
 * added support for chat command "!e323ai" to visualize debug info (available for spectators only)
-* added support of separate categorization files per AI; you have to copy & rename original categorization file to the following template: <modname>-<team_id>.cfg
+* added support of separate categorization files per AI; you have to copy & rename original categorization file to the following template: <modname>-categorization-<team_id>.cfg
 
 v3.20.0 [2010-05-05]
 * aircraft support
